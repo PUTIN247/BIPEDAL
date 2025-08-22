@@ -1,0 +1,51 @@
+#include <Servo.h>
+
+// Set your starting and ending angles here:
+int targetAngles[3] = {90, 30, 120};  // Change targetAngles = {hip, knee, ankle}; to your desired target angles
+
+// Servo pins
+const int servoPins = {3, 5, 6};
+
+Servo servos;
+int currentAngles = {90, 90, 90}; // Assumes all start at 90 deg (edit if different)
+float progress = {0, 0, 0};
+bool finished = {false, false, false};
+
+// Smooth movement params
+const int stepDelay = 20; // ms, controls speed
+const float moveStep = 2.0; // degrees per loop
+
+void setup() {
+  for (int i = 0; i < 3; i++) {
+    servos[i].attach(servoPins[i]);
+    servos[i].write(currentAngles[i]);
+  }
+}
+
+void loop() {
+  bool allDone = true;
+  for (int i = 0; i < 3; i++) {
+    if (!finished[i]) {
+      float diff = targetAngles[i] - currentAngles[i];
+      if (abs(diff) > moveStep) {
+        // Sine smoothness: non-linear stepping
+        float step = moveStep * sin(progress[i] / (abs(diff) + 1) * (PI/2));
+        // Ensure minimum move of 2 deg per step unless within last step
+        if (abs(step) < 2.0 && abs(diff) > 2.0) step = (diff > 0 ? 2.0 : -2.0);
+        currentAngles[i] += (diff > 0 ? step : -step);
+        servos[i].write((int)currentAngles[i]);
+        progress[i] += abs(step);
+        allDone = false;
+      } else {
+        servos[i].write(targetAngles[i]);
+        currentAngles[i] = targetAngles[i];
+        finished[i] = true;
+      }
+    }
+  }
+  if (allDone) while(1); // Stops loop if all movements are done
+  delay(stepDelay);
+}
+
+
+
