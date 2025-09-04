@@ -1,14 +1,15 @@
 #include <Servo.h>
 
 Servo myServo;
-
 int angle = 0;
 
 void setup() {
   myServo.attach(9);
   Serial.begin(9600);
+}
 
-  Serial.println("Moving to initial position: 0");
+void loop() {
+  Serial.println("Starting new sequence...");
   myServo.write(0);
   delay(500);
 
@@ -26,9 +27,7 @@ void setup() {
     delay(40);
   }
 
-  Serial.println("Sequence Complete.");
-}
-
-void loop() {
-  // The loop is empty because the entire sequence runs once in setup().
+  // A brief pause before the loop repeats and snaps the servo back to 0
+  Serial.println("Sequence complete. Repeating...");
+  delay(1000);
 }
