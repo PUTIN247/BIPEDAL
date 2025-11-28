@@ -10,7 +10,6 @@ int maxAngle = 90;      // upper bound (degrees)
 int stepDelay = 100;      // ms delay between steps (controls speed)
 
 void setup() {
-  Servo::useTimer(0);          // select hardware timer 0 for PWM (must before attach)
   myservo.attach(servoPin);    // attach servo to pin (start PWM output)
   myservo.write(angle);        // set initial servo position (20°)
   delay(2000);                  // wait 500 ms so servo reaches initial position
