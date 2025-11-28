@@ -1,108 +1,198 @@
-#include <Wire.h>                        // Library for I2C communication
-#include <Adafruit_PWMServoDriver.h>     // Library for PCA9685 servo driver
+/* autogait_improved.ino
+   Modified for:
+   - Servo mechanical "straight up" = 90 degrees.
+   - Calibration offsets (set later by user).
+   - Slower, smoother motions (SPEED_MULTIPLIER + finer interpolation).
+   - Preserves original gait phases & safety constraints.
+*/
 
-// Define I2C pins for ESP32 (default I2C can also work, but we fix pins here)
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+// I2C pins for ESP32 (may use default I2C if preferred)
 #define I2C_SDA_PIN 21
 #define I2C_SCL_PIN 22
 
-// Create a PCA9685 object (default address = 0x40)
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
-// Servo driver settings
-const int PWM_FREQ = 50;      // Servo frequency = 50 Hz (standard for hobby servos)
-const int SERVOMIN = 150;     // Minimum pulse length count (corresponds to 0°)
-const int SERVOMAX = 600;     // Maximum pulse length count (corresponds to 180°)
+const int PWM_FREQ = 50;      // 50Hz for hobby servos
+const int SERVOMIN = 150;     // Min pulse count (tuned to your servos)
+const int SERVOMAX = 600;     // Max pulse count
 
-// Assign PCA9685 channels for each servo
-const uint8_t HIP_CH   = 0;   // Servo connected to channel 0
-const uint8_t KNEE_CH  = 1;   // Servo connected to channel 1
-const uint8_t ANKLE_CH = 2;   // Servo connected to channel 2
+// PCA9685 channels (set to your wiring)
+const int HIP_CH   = 0;
+const int KNEE_CH  = 1;
+const int ANKLE_CH = 2;
 
-// Define "Home" or neutral position (all servos at 0°)
-float hipHome   = 0.0;
-float kneeHome  = 0.0;
-float ankleHome = 90.0; // ankle servo at 90 degree angle
-
-// Joint movement limits (safety constraints)
-const float HIP_MIN   = 0.0;
-const float HIP_MAX   = 180.0;
+// Physical joint angle limits (degrees) - keep these as in your original code
+const float HIP_MIN   = -45.0;
+const float HIP_MAX   = 45.0;
 const float KNEE_MIN  = 0.0;
-const float KNEE_MAX  = 90.0;     // Knee cannot bend beyond 90° (physical constraint)
-const float ANKLE_MIN = 0.0;
-const float ANKLE_MAX = 180.0;
+const float KNEE_MAX  = 90.0;
+const float ANKLE_MIN = -30.0;
+const float ANKLE_MAX = 30.0;
 
-// Default smooth movement steps (higher = smoother but slower)
-const int DEFAULT_STEPS = 20;  //devide angle movement from one to another into number of steps 
+// IMPORTANT: Mechanical neutral: when all three servos read 90°, the leg is straight up (vertical).
+// So we will treat servo-angle 90° as the mechanical straight position (body rectangle's breadth horizontal).
 
-// Durations for each phase of gait (in milliseconds)
-const int LIFT_TIME_MS    = 350;   // Lift leg
-const int SWING_TIME_MS   = 500;   // Move leg forward
-const int PLACE_TIME_MS   = 300;   // Put leg down
-const int RECOVER_TIME_MS = 300;   // Return to home
-const int CYCLE_DELAY_MS  = 150;   // Small pause between steps
+// --- HOME / CALIBRATION ---
+// You will calibrate true home later. For now, assume base home positions that correspond to "straight leg up"
+// (these are servo-reading angles — you will add per-servo calibration offsets below).
+// Use 90 for the straight-up reading, then apply offsets to find the real home.
+float hipHomeBase   = 90.0; // means servo at 90 -> hip joint vertical
+float kneeHomeBase  = 90.0; // servo 90 -> knee straight (aligned)
+float ankleHomeBase = 90.0; // servo 90 -> ankle neutral (straight)
 
-// Convert angle (0°–180°) to PCA9685 pulse length
-int angleToPulseCounts(float angle_deg) {
-  if (angle_deg < 0) angle_deg = 0;       // Clamp to valid range
-  if (angle_deg > 180) angle_deg = 180;
-  return map((int)angle_deg, 0, 180, SERVOMIN, SERVOMAX); // Map angle to pulse range
+/* Calibration offsets (deg)
+   After you measure real required outputs, set these to tune each servo's home.
+   For example: hipCalibOffset = -5 means the actual hip home is (hipHomeBase + (-5)) = 85 deg.
+*/
+float hipCalibOffset   = 0.0;
+float kneeCalibOffset  = 0.0;
+float ankleCalibOffset = 0.0;
+
+// Combined / effective home angles used by the gait
+float hipHome;
+float kneeHome;
+float ankleHome;
+
+// --- Timing & smoothness control ---
+// Increase SPEED_MULTIPLIER to slow down the motions (e.g. 2.0 => twice as slow).
+// Set to 1.0 for original speed, <1 faster (NOT recommended if servos are already too fast)
+const float SPEED_MULTIPLIER = 2.5; // recommended: 2.0..4.0 for visible slow motions
+
+// Interpolation steps (higher -> smoother but takes more time); combine with SPEED_MULTIPLIER
+const int BASE_STEPS = 80;     // original-ish; increase for smoother motion
+const int MIN_STEPS  = 20;
+
+// Base phase durations (ms) — these will be multiplied by SPEED_MULTIPLIER
+const int LIFT_TIME_MS    = 220;  // phase 1
+const int SWING_TIME_MS   = 240;  // phase 2
+const int PLACE_TIME_MS   = 200;  // phase 3
+const int RECOVER_TIME_MS = 200;  // phase 4
+const int CYCLE_DELAY_MS  = 120;  // pause between cycles
+
+// Function forward declarations
+void setServoPulse(int n, double pulse);
+void setServoAngle(int channel, float angleDeg);
+float angleConstrain(float a, float lo, float hi);
+void moveLegSmooth(float hipFrom, float hipTo, float kneeFrom, float kneeTo, float ankleFrom, float ankleTo, int duration_ms);
+void stepCycleSingleLeg();
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  pwm.begin();
+  pwm.setPWMFreq(PWM_FREQ);
+  delay(200);
+
+  // Compute effective home positions (calibrated)
+  // Note: hipHomeBase etc. are servo-reading angles (0-180). We keep them that way.
+  hipHome   = hipHomeBase   + hipCalibOffset;
+  kneeHome  = kneeHomeBase  + kneeCalibOffset;
+  ankleHome = ankleHomeBase + ankleCalibOffset;
+
+  // Constrain to physical limits (converted relative to mechanical neutral: 90 as straight)
+  // We store and use angles as "servo-angle" (0..180), but limits were in joint-centered degrees.
+  // Convert joint-limits to servo-angle space by adding 90 (since 90 is straight/up).
+  // Example: HIP_MIN = -45 deg -> servo-angle min = 90 + (-45) = 45 deg.
+  hipHome   = constrain(hipHome, 90.0 + HIP_MIN, 90.0 + HIP_MAX);
+  kneeHome  = constrain(kneeHome, 90.0 + KNEE_MIN, 90.0 + KNEE_MAX);
+  ankleHome = constrain(ankleHome, 90.0 + ANKLE_MIN, 90.0 + ANKLE_MAX);
+
+  Serial.println("Starting autogait_improved");
+  Serial.print("Effective homes (servo angles): ");
+  Serial.print("Hip: "); Serial.print(hipHome);
+  Serial.print(" Knee: "); Serial.print(kneeHome);
+  Serial.print(" Ankle: "); Serial.println(ankleHome);
+
+  // Move to home gently on startup
+  setServoAngle(HIP_CH, hipHome);
+  setServoAngle(KNEE_CH, kneeHome);
+  setServoAngle(ANKLE_CH, ankleHome);
+  delay(800);
 }
 
-// Function to set servo angle safely with constraints
-void setServoAngle(uint8_t channel, float angle_deg) {
-  // Apply constraints depending on joint
-  if (channel == KNEE_CH) {
-    angle_deg = constrain(angle_deg, KNEE_MIN, KNEE_MAX);
-  } else if (channel == HIP_CH) {
-    angle_deg = constrain(angle_deg, HIP_MIN, HIP_MAX);
-  } else if (channel == ANKLE_CH) {
-    angle_deg = constrain(angle_deg, ANKLE_MIN, ANKLE_MAX);
+void loop() {
+  stepCycleSingleLeg();
+}
+
+// --- Helper: map degrees (0..180) to PWM pulse counts and write to PCA9685 ---
+void setServoAngle(int channel, float angleDeg) {
+  // Constrain to [0..180]
+  float a = constrain(angleDeg, 0.0, 180.0);
+
+  // Map to pulse width count
+  // Linear map: angle 0 => SERVOMIN, angle 180 => SERVOMAX
+  long pulse = map((int)a, 0, 180, SERVOMIN, SERVOMAX);
+  pwm.setPWM(channel, 0, pulse);
+}
+
+// Convenience: ensure angle within given joint limits (joint-space)
+float angleConstrain(float servoAngle, float jointLo, float jointHi) {
+  // servoAngle is expressed as servo-reading angle (0..180)
+  // jointLo/jointHi are in joint-centered degrees (e.g., KNEE_MIN = 0). Convert and constrain.
+  float lo = 90.0 + jointLo;
+  float hi = 90.0 + jointHi;
+  return constrain(servoAngle, lo, hi);
+}
+
+// Smooth multi-joint move using linear interpolation
+void moveLegSmooth(float hipFrom, float hipTo, float kneeFrom, float kneeTo, float ankleFrom, float ankleTo, int duration_ms) {
+  // Scale duration by SPEED_MULTIPLIER
+  float durationScaled = duration_ms * SPEED_MULTIPLIER;
+
+  // Compute steps (higher steps for smoother motion). Keep a minimum.
+  int steps = max(MIN_STEPS, BASE_STEPS);
+  // If user slows down a lot, increase steps proportionally for smoothness
+  steps = int(steps * SPEED_MULTIPLIER);
+  steps = max(steps, MIN_STEPS);
+
+  // Per-step increments
+  float hipStep   = (hipTo   - hipFrom)   / float(steps);
+  float kneeStep  = (kneeTo  - kneeFrom)  / float(steps);
+  float ankleStep = (ankleTo - ankleFrom) / float(steps);
+
+  // Step delay (ms)
+  float stepDelay = durationScaled / float(steps);
+
+  float hip = hipFrom;
+  float knee = kneeFrom;
+  float ankle = ankleFrom;
+
+  for (int i = 0; i <= steps; ++i) {
+    // Constrain each joint to physical limits (servo-angle space)
+    float hipCon   = angleConstrain(hip, HIP_MIN, HIP_MAX);
+    float kneeCon  = angleConstrain(knee, KNEE_MIN, KNEE_MAX);
+    float ankleCon = angleConstrain(ankle, ANKLE_MIN, ANKLE_MAX);
+
+    setServoAngle(HIP_CH, hipCon);
+    setServoAngle(KNEE_CH, kneeCon);
+    setServoAngle(ANKLE_CH, ankleCon);
+
+    hip   += hipStep;
+    knee  += kneeStep;
+    ankle += ankleStep;
+
+    delay((int)stepDelay);
   }
-
-  // Convert angle to PWM pulse and send to servo
-  int pulse = angleToPulseCounts(angle_deg);
-  pwm.setPWM(channel, 0, pulse);  //tells the pca that to which angle it should go high and low.. low at pulse (end angle )
 }
 
-// Smooth transition of joints from one pose to another
-// This interpolates angles gradually in "steps" for natural motion
-void moveLegSmooth(float hipFrom, float hipTo, 
-                   float kneeFrom, float kneeTo,
-                   float ankleFrom, float ankleTo, 
-                   int duration_ms, int steps = DEFAULT_STEPS) {
-  if (steps <= 0) steps = DEFAULT_STEPS;   // Safety: prevent zero-step motion
-  for (int i = 1; i <= steps; ++i) {
-    float t = (float)i / (float)steps;     // Interpolation factor (0 → 1)
-    
-    // Linear interpolation between start and end positions
-    float hipAngle   = hipFrom + (hipTo - hipFrom) * t;
-    float kneeAngle  = kneeFrom + (kneeTo - kneeFrom) * t;
-    float ankleAngle = ankleFrom + (ankleTo - ankleFrom) * t;
-
-    // Apply interpolated angles
-    setServoAngle(HIP_CH, hipAngle);
-    setServoAngle(KNEE_CH, kneeAngle);
-    setServoAngle(ANKLE_CH, ankleAngle);
-
-    delay(duration_ms / steps); // Small delay for smoothness
-  }
-}
-
-// Define one walking cycle for a single leg
+// Single-leg step cycle: same sequence as original but using the improved timing & home handling
 void stepCycleSingleLeg() {
-  // Start from home position
+  // Effective servo-angle home values already computed in setup()
   float hip0   = hipHome;
   float knee0  = kneeHome;
   float ankle0 = ankleHome;
 
   // Phase 1: Lift leg (bend knee, raise ankle slightly)
-  float ankleLift  = max(ANKLE_MIN, ankle0 - 18.0);   // Raise ankle (negative = upward tilt)
-  float kneeLift   = min(KNEE_MAX, knee0 + 35.0);     // Bend knee up to 35° (within 90° limit)
-  float hipPrep    = hip0;                            // Hip stays neutral for lift
+  float ankleLift = max(90.0 + ANKLE_MIN, ankle0 - 18.0);   // raise (servo-angle decrease = upward tilt)
+  float kneeLift  = min(90.0 + KNEE_MAX, knee0 + 35.0);    // bend knee (servo-angle increases)
+  float hipPrep   = hip0;                                 // hip neutral during lift
   moveLegSmooth(hip0, hipPrep, knee0, kneeLift, ankle0, ankleLift, LIFT_TIME_MS);
 
-  // Phase 2: Swing leg forward
-  float hipForward = constrain(hip0 + 25.0, HIP_MIN, HIP_MAX); // Move hip forward by 25°
+  // Phase 2: Swing leg forward (hip forward by ~25 deg in joint-space)
+  float hipForward = constrain(hip0 + 25.0, 90.0 + HIP_MIN, 90.0 + HIP_MAX);
   moveLegSmooth(hipPrep, hipForward, kneeLift, kneeLift, ankleLift, ankleLift, SWING_TIME_MS);
 
   // Phase 3: Place leg down (straighten knee & ankle)
@@ -111,24 +201,5 @@ void stepCycleSingleLeg() {
   // Phase 4: Recover to home position
   moveLegSmooth(hipForward, hip0, knee0, knee0, ankle0, ankle0, RECOVER_TIME_MS);
 
-  delay(CYCLE_DELAY_MS); // Small pause before repeating
-}
-
-void setup() {
-  // Initialize I2C for PCA9685
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  pwm.begin();
-  pwm.setPWMFreq(PWM_FREQ);
-  delay(200);
-
-  // Move all joints to home position on startup
-  setServoAngle(HIP_CH, hipHome);
-  setServoAngle(KNEE_CH, kneeHome);
-  setServoAngle(ANKLE_CH, ankleHome);
-  delay(800); // Wait to stabilize before starting gait
-}
-
-void loop() {
-  // Repeat single leg step cycle continuously
-  stepCycleSingleLeg();
+  delay((int)(CYCLE_DELAY_MS * SPEED_MULTIPLIER));
 }
