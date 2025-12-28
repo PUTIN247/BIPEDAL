@@ -41,7 +41,7 @@ void setup() {
 
 void loop() {
   // --- SINGLE LEG GAIT TEST ---
-  
+  //if the leg moves to fast and jitter .. increase these time but do not include the delay
   // 1. Lift
   leftLeg.moveToSmooth(-2.0, -12.0, 300);
 
