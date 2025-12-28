@@ -17,6 +17,8 @@ class BipedLeg {
     // Constructor: defined by the servo driver and specific channels
     BipedLeg(Adafruit_PWMServoDriver *driver, int hipCh, int kneeCh, int ankleCh);
 
+    void setServoRaw(int channel, float angle);
+
     // Setup function to initialize offsets
     //offset angles with reference to 0 -- measure the offset angles here 
     void setOffsets(float hipOff, float kneeOff, float ankleOff);
@@ -57,7 +59,6 @@ class BipedLeg {
 
     // Private Helpers
     bool calculateIK(float x, float y, float &tHip, float &tKnee, float &tAnkle);
-    void setServoRaw(int channel, float angle);
 };
 
 #endif
