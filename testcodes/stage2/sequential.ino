@@ -10,7 +10,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define L_KNEE 1
 #define L_ANKLE 2
 
-// Right Leg Channels (NEW - Please verify connections)
+// Right Leg Channels
 #define R_HIP 4
 #define R_KNEE 5
 #define R_ANKLE 6
