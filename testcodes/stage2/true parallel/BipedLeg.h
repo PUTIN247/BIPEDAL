@@ -53,7 +53,6 @@ private:
     const float L_TIBIA = 9.5;
     
     // Constraints (Degrees relative to Neutral 90)
-    [cite_start]// Knee max 90 deg [cite: 68-69]
     const float HIP_MIN = -45.0, HIP_MAX = 45.0;
     const float KNEE_MIN = 0.0, KNEE_MAX = 90.0;
     const float ANKLE_MIN = -45.0, ANKLE_MAX = 45.0;
