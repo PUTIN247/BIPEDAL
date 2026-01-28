@@ -1,59 +1,67 @@
 /*
   Stage1_IK_Test.ino (Arduino Uno Version)
-  Main controller for Single Leg IK Testing
+  With Detailed Step Logging
 */
 
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
-#include "BipedLeg.h" // Include our new custom library
+#include "BipedLeg.h" 
 
-// NOTE: On Arduino Uno, I2C is fixed to:
-// SDA = A4
-// SCL = A5
-
-// Servo Driver Object
+// NOTE: On Arduino Uno, I2C is fixed to: SDA = A4, SCL = A5
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
-// --- LEG CONFIGURATION ---
 // Define channels: Hip=0, Knee=1, Ankle=2
 BipedLeg leftLeg(&pwm, 0, 1, 2);
 
 void setup() {
-  Serial.begin(115200); // Make sure your Serial Monitor is set to 115200 baud
+  Serial.begin(115200); 
   Serial.println("Initializing Stage 1 IK Test (Uno)...");
 
-  // Init Hardware
-  Wire.begin(); // Arduino Uno uses default pins (A4/A5) automatically
-  
+  Wire.begin(); 
   pwm.begin();
-  pwm.setPWMFreq(50); // 50Hz for servos
+  pwm.setPWMFreq(50);
   delay(200);
 
-  // --- CALIBRATION ---
-  // Adjust these if 90 degrees isn't perfectly straight on your robot
-  // (HipOffset, KneeOffset, AnkleOffset)
+  // Apply Offsets (Adjust if needed)
   leftLeg.setOffsets(0.0, 0.0, 0.0);
 
-  // Move to Start Position safely
+  // --- HOMING ---
   Serial.println("Homing...");
-  leftLeg.moveToSmooth(0, -15.0, 1000); 
-  delay(1000);
+  leftLeg.moveToSmooth(-2, -15.0, 1000); 
+  delay(500);
+  
+  // LOG HOME POSITION
+  printStepInfo("HOME POSITION");
 }
 
 void loop() {
   // --- SINGLE LEG GAIT TEST ---
+
   // 1. Lift
-  leftLeg.moveToSmooth(-2.0, -12.0, 300);
+  leftLeg.moveToSmooth(-4.0, -13.0, 300);
+  printStepInfo("STEP 1: LIFT");
 
   // 2. Swing Forward
-  leftLeg.moveToSmooth(5.0, -12.0, 300);
+  leftLeg.moveToSmooth(3.0, -13.0, 300);
+  printStepInfo("STEP 2: SWING FORWARD");
 
   // 3. Place Down
-  leftLeg.moveToSmooth(5.0, -15.0, 200);
+  leftLeg.moveToSmooth(3.0, -13.0, 200);
+  printStepInfo("STEP 3: PLACE DOWN");
 
   // 4. Stance (Drag Back - The Power Stroke)
-  // This line MUST be perfectly horizontal for stable walking
-  leftLeg.moveToSmooth(-2.0, -15.0, 600);
+  leftLeg.moveToSmooth(-4.0, -15.0, 600);
+  printStepInfo("STEP 4: STANCE");
   
-  delay(100);
+  // Wait before next cycle
+  delay(1000); 
+}
+
+// --- HELPER FUNCTION FOR LOGGING ---
+void printStepInfo(String stepName) {
+  Serial.println(stepName);
+  Serial.print("Hip Servo Angle:   "); Serial.print(leftLeg.getHipAngle()); Serial.println("°");
+  Serial.print("Knee Servo Angle:  "); Serial.print(leftLeg.getKneeAngle()); Serial.println("°");
+  Serial.print("Ankle Servo Angle: "); Serial.print(leftLeg.getAnkleAngle()); Serial.println("°");
+  Serial.println("-----------------------");
 }
