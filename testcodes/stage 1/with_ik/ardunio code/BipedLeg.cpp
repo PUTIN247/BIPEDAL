@@ -4,20 +4,20 @@
 
 #include "BipedLeg.h"
 
-// Constructor
 BipedLeg::BipedLeg(Adafruit_PWMServoDriver *driver, int hipCh, int kneeCh, int ankleCh) {
   _pwm = driver;
   _hipCh = hipCh;
   _kneeCh = kneeCh;
   _ankleCh = ankleCh;
   
-  // Default start position (Leg hanging down)
   _currX = 0;
   _currY = -14.0;
-  
   _hipOffset = 0;
   _kneeOffset = 0;
   _ankleOffset = 0;
+  
+  // Initialize angles
+  _lastHip = 0; _lastKnee = 0; _lastAnkle = 0;
 }
 
 void BipedLeg::setOffsets(float hipOff, float kneeOff, float ankleOff) {
@@ -29,38 +29,39 @@ void BipedLeg::setOffsets(float hipOff, float kneeOff, float ankleOff) {
 float BipedLeg::getX() { return _currX; }
 float BipedLeg::getY() { return _currY; }
 
-// --- LOW LEVEL SERVO CONTROL ---
+// NEW: Implement the Getter functions
+float BipedLeg::getHipAngle()   { return _lastHip; }
+float BipedLeg::getKneeAngle()  { return _lastKnee; }
+float BipedLeg::getAnkleAngle() { return _lastAnkle; }
+
 void BipedLeg::setServoRaw(int channel, float angle) {
   int a = constrain((int)angle, 0, 180);
   int pulse = map(a, 0, 180, SERVOMIN, SERVOMAX);
   _pwm->setPWM(channel, 0, pulse);
 }
 
-// --- INVERSE KINEMATICS (IK) ---
 bool BipedLeg::calculateIK(float x, float y, float &tHip, float &tKnee, float &tAnkle) {
-  
   float dist = sqrt(x*x + y*y);
 
-  if (dist > (L_FEMUR + L_TIBIA - 0.5)) return false; // Too far
-  if (dist < 4.0) return false; // Too close
+  if (dist > (L_FEMUR + L_TIBIA - 0.5)) return false; 
+  if (dist < 4.0) return false; 
 
-  // 1. KNEE (Law of Cosines)
+  // KNEE
   float cosGamma = (L_FEMUR*L_FEMUR + L_TIBIA*L_TIBIA - dist*dist) / (2 * L_FEMUR * L_TIBIA);
   cosGamma = constrain(cosGamma, -1.0, 1.0);
   float gamma = acos(cosGamma);
   float kneeRad = PI - gamma; 
 
-  // 2. HIP
+  // HIP
   float alpha = atan2(x, -y); 
   float cosBeta = (L_FEMUR*L_FEMUR + dist*dist - L_TIBIA*L_TIBIA) / (2 * L_FEMUR * dist);
   cosBeta = constrain(cosBeta, -1.0, 1.0);
   float beta = acos(cosBeta);
   float hipRad = alpha - beta;
 
-  // 3. ANKLE (Auto-leveling)
+  // ANKLE
   float ankleRad = -(hipRad + kneeRad);
 
-  // Convert to Degrees
   tHip   = hipRad * 180.0 / PI;
   tKnee  = kneeRad * 180.0 / PI;
   tAnkle = ankleRad * 180.0 / PI;
@@ -68,7 +69,6 @@ bool BipedLeg::calculateIK(float x, float y, float &tHip, float &tKnee, float &t
   return true;
 }
 
-// --- SMOOTH MOVEMENT ---
 void BipedLeg::moveToSmooth(float targetX, float targetY, int duration_ms) {
   float startX = _currX;
   float startY = _currY;
@@ -78,7 +78,6 @@ void BipedLeg::moveToSmooth(float targetX, float targetY, int duration_ms) {
 
   for (int i = 1; i <= steps; i++) {
     float t = (float)i / steps;
-    
     float nowX = startX + (targetX - startX) * t;
     float nowY = startY + (targetY - startY) * t;
 
@@ -92,6 +91,11 @@ void BipedLeg::moveToSmooth(float targetX, float targetY, int duration_ms) {
       setServoRaw(_hipCh,   90.0 + h + _hipOffset);
       setServoRaw(_kneeCh,  90.0 + k + _kneeOffset);
       setServoRaw(_ankleCh, 90.0 + a + _ankleOffset);
+
+      // NEW: Save the angles so we can print them later
+      _lastHip = h;
+      _lastKnee = k;
+      _lastAnkle = a;
     }
     delay(10);
   }
