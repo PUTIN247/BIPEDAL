@@ -1,7 +1,6 @@
 /*
   BipedLeg.h - Library for controlling a single Zig-Zag leg
   Target: Arduino Uno
-  Stage: 1 (Single Leg IK)
 */
 
 #ifndef BIPEDLEG_H
@@ -14,17 +13,19 @@
 
 class BipedLeg {
   public:
-    // Constructor
     BipedLeg(Adafruit_PWMServoDriver *driver, int hipCh, int kneeCh, int ankleCh);
 
     void setServoRaw(int channel, float angle);
     void setOffsets(float hipOff, float kneeOff, float ankleOff);
-
-    // Main Motion Function
     void moveToSmooth(float targetX, float targetY, int duration_ms);
 
     float getX();
     float getY();
+
+    // NEW: Functions to read the current servo angles
+    float getHipAngle();
+    float getKneeAngle();
+    float getAnkleAngle();
 
   private:
     Adafruit_PWMServoDriver *_pwm;
@@ -32,22 +33,22 @@ class BipedLeg {
 
     float _currX, _currY;
     float _hipOffset, _kneeOffset, _ankleOffset;
+    
+    // NEW: Variables to store the last calculated angles
+    float _lastHip, _lastKnee, _lastAnkle;
 
-    // Physical Geometry (cm)
     const float L_FEMUR = 9.5;
     const float L_TIBIA = 9.5;
 
-    // Servo limits (Pulse Width)
-    const int SERVOMIN = 150;  // 0 degrees
-    const int SERVOMAX = 600;  // 180 degrees
+    const int SERVOMIN = 150; 
+    const int SERVOMAX = 600; 
 
-    // Safety Constraints (Degrees relative to Neutral)
-    const float HIP_MIN   = -45.0; 
-    const float HIP_MAX   = 45.0;
-    const float KNEE_MIN  = 0.0;
-    const float KNEE_MAX  = 90.0; // Hard limit
-    const float ANKLE_MIN = -40.0;
-    const float ANKLE_MAX = 40.0;
+    const float HIP_MIN   = -90.0; 
+    const float HIP_MAX   = 60.0;
+    const float KNEE_MIN  = -90.0;
+    const float KNEE_MAX  = 90.0; 
+    const float ANKLE_MIN = -90.0;
+    const float ANKLE_MAX = 70.0;
 
     bool calculateIK(float x, float y, float &tHip, float &tKnee, float &tAnkle);
 };
