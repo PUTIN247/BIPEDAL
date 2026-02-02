@@ -46,7 +46,7 @@ void loop() {
   printStepInfo("STEP 2: SWING FORWARD");
 
   // 3. Place Down
-  leftLeg.moveToSmooth(3.0, -13.0, 200);
+  leftLeg.moveToSmooth(3.0, -15.0, 200);
   printStepInfo("STEP 3: PLACE DOWN");
 
   // 4. Stance (Drag Back - The Power Stroke)
