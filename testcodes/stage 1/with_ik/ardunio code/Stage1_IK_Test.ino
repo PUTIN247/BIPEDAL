@@ -11,7 +11,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 // Define channels: Hip=0, Knee=1, Ankle=2
-BipedLeg leftLeg(&pwm, 0, 1, 2);
+BipedLeg rightLeg(&pwm, 0, 1, 2);
 
 void setup() {
   Serial.begin(115200); 
@@ -23,11 +23,11 @@ void setup() {
   delay(200);
 
   // Apply Offsets (Adjust if needed)
-  leftLeg.setOffsets(0.0, 0.0, 0.0);
+  rightLeg.setOffsets(0.0, 0.0, 0.0);
 
   // --- HOMING ---
   Serial.println("Homing...");
-  leftLeg.moveToSmooth(-2, -15.0, 1000); 
+  rightLeg.moveToSmooth(-2, -15.0, 1000); 
   delay(500);
   
   // LOG HOME POSITION
@@ -38,19 +38,19 @@ void loop() {
   // --- SINGLE LEG GAIT TEST ---
 
   // 1. Lift
-  leftLeg.moveToSmooth(-4.0, -13.0, 300);
+  rightLeg.moveToSmooth(-4.0, -13.0, 300);
   printStepInfo("STEP 1: LIFT");
 
   // 2. Swing Forward
-  leftLeg.moveToSmooth(3.0, -13.0, 300);
+  rightLeg.moveToSmooth(3.0, -13.0, 300);
   printStepInfo("STEP 2: SWING FORWARD");
 
   // 3. Place Down
-  leftLeg.moveToSmooth(3.0, -15.0, 200);
+  rightLeg.moveToSmooth(3.0, -15.0, 200);
   printStepInfo("STEP 3: PLACE DOWN");
 
   // 4. Stance (Drag Back - The Power Stroke)
-  leftLeg.moveToSmooth(-4.0, -15.0, 600);
+  rightLeg.moveToSmooth(-4.0, -15.0, 600);
   printStepInfo("STEP 4: STANCE");
   
   // Wait before next cycle
@@ -60,8 +60,8 @@ void loop() {
 // --- HELPER FUNCTION FOR LOGGING ---
 void printStepInfo(String stepName) {
   Serial.println(stepName);
-  Serial.print("Hip Servo Angle:   "); Serial.print(leftLeg.getHipAngle()); Serial.println("°");
-  Serial.print("Knee Servo Angle:  "); Serial.print(leftLeg.getKneeAngle()); Serial.println("°");
-  Serial.print("Ankle Servo Angle: "); Serial.print(leftLeg.getAnkleAngle()); Serial.println("°");
+  Serial.print("Hip Servo Angle:   "); Serial.print(rightLeg.getHipAngle()); Serial.println("°");
+  Serial.print("Knee Servo Angle:  "); Serial.print(rightLeg.getKneeAngle()); Serial.println("°");
+  Serial.print("Ankle Servo Angle: "); Serial.print(rightLeg.getAnkleAngle()); Serial.println("°");
   Serial.println("-----------------------");
 }
