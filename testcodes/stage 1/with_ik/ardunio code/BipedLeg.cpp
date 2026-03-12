@@ -68,13 +68,15 @@ bool BipedLeg::calculateIK(float x, float y, float &tHip, float &tKnee, float &t
 
   return true;
 }
-
 void BipedLeg::moveToSmooth(float targetX, float targetY, int duration_ms) {
   float startX = _currX;
   float startY = _currY;
   
   int steps = duration_ms / 10;
   if (steps < 1) steps = 1;
+
+  float lastValidX = startX;  // ← track last TRUE position
+  float lastValidY = startY;
 
   for (int i = 1; i <= steps; i++) {
     float t = (float)i / steps;
@@ -84,21 +86,33 @@ void BipedLeg::moveToSmooth(float targetX, float targetY, int duration_ms) {
     float h, k, a;
     
     if (calculateIK(nowX, nowY, h, k, a)) {
+      
+      // CHECK if clamping would occur
+      bool clamped = (h < HIP_MIN || h > HIP_MAX ||
+                      k < KNEE_MIN || k > KNEE_MAX ||
+                      a < ANKLE_MIN || a > ANKLE_MAX);
+
       h = constrain(h, HIP_MIN, HIP_MAX);
       k = constrain(k, KNEE_MIN, KNEE_MAX);
       a = constrain(a, ANKLE_MIN, ANKLE_MAX);
 
-      setServoRaw(_hipCh,   90.0 + h + _hipOffset);
-      setServoRaw(_kneeCh,  90.0 + k + _kneeOffset);
-      setServoRaw(_ankleCh, 90.0 + a + _ankleOffset);
+      float dir = _isLeft ? -1.0 : 1.0;
+      setServoRaw(_hipCh,   90.0 + (h * dir) + _hipOffset);
+      setServoRaw(_kneeCh,  90.0 + (k * dir) + _kneeOffset);
+      setServoRaw(_ankleCh, 90.0 + (a * dir) + _ankleOffset);
 
-      // NEW: Save the angles so we can print them later
-      _lastHip = h;
-      _lastKnee = k;
-      _lastAnkle = a;
+      _lastHip = h; _lastKnee = k; _lastAnkle = a;
+
+      // Only update tracked position if NOT clamped
+      if (!clamped) {
+        lastValidX = nowX;
+        lastValidY = nowY;
+      }
     }
     delay(10);
   }
-  _currX = targetX;
-  _currY = targetY;
+
+  // Set to last HONEST position
+  _currX = lastValidX;
+  _currY = lastValidY;
 }
